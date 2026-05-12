@@ -1,7 +1,28 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { initializeApp, FirebaseApp } from 'firebase/app';
+import { getFirestore, Firestore, collection, getDocs, query, where, orderBy, doc, getDoc, setDoc, limit, getCountFromServer } from 'firebase/firestore';
 import { Vaga, AppStatus, FonteVaga, ScraperStatus } from '../types';
+
+// O arquivo de configuração do Firebase é gerado automaticamente pelo set_up_firebase
+let firebaseConfig: any = null;
+try {
+  // 1. Tenta carregar do ambiente (útil para Vercel/Produção)
+  if (process.env.FIREBASE_CONFIG) {
+    firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG);
+  } 
+  
+  // 2. Se não houver no ambiente, tenta carregar do arquivo local
+  if (!firebaseConfig) {
+    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(configPath)) {
+      firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    }
+  }
+} catch (e) {
+  console.warn('Storage: Falha ao carregar configuração do Firebase das fontes disponíveis.');
+}
 
 const JSON_DB_PATH = path.join(process.cwd(), 'vagas.json');
 const STATUS_DB_PATH = path.join(process.cwd(), 'status.json');
@@ -9,6 +30,10 @@ const STATUS_DB_PATH = path.join(process.cwd(), 'status.json');
 export class StorageService {
   private supabase: SupabaseClient | null = null;
   private useSupabase: boolean = false;
+  
+  private firebaseApp: FirebaseApp | null = null;
+  private db: Firestore | null = null;
+  private useFirebase: boolean = false;
 
   constructor() {
     this.refreshConfig();
@@ -16,6 +41,22 @@ export class StorageService {
   }
 
   private refreshConfig() {
+    // Firebase Config - Ativa por padrão se o arquivo existir, a menos que seja explicitamente desativado
+    const firebaseEnv = process.env.USE_FIREBASE;
+    this.useFirebase = firebaseEnv !== 'false' && firebaseConfig !== null;
+    
+    if (this.useFirebase && firebaseConfig && !this.db) {
+      try {
+        console.log('Storage: Inicializando Firebase Firestore automaticamente...');
+        this.firebaseApp = initializeApp(firebaseConfig);
+        this.db = getFirestore(this.firebaseApp, firebaseConfig.firestoreDatabaseId);
+      } catch (err) {
+        console.error('Falha ao inicializar Firebase:', err);
+        this.useFirebase = false;
+      }
+    }
+
+    // Supabase Config (Mantemos por compatibilidade se o usuário quiser alternar)
     this.useSupabase = process.env.USE_SUPABASE === 'true';
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_ANON_KEY;
@@ -104,6 +145,42 @@ export class StorageService {
     this.refreshConfig();
     let vagas: Vaga[] = [];
 
+    // Prioridade 1: Firebase
+    if (this.useFirebase && this.db) {
+      try {
+        const vagasCol = collection(this.db, 'vagas');
+        let q = query(vagasCol, orderBy('dataPublicacao', 'desc'));
+        
+        if (filters?.fonte && filters.fonte !== 'ALL' as any) {
+          q = query(vagasCol, where('fonte', '==', filters.fonte), orderBy('dataPublicacao', 'desc'));
+        }
+
+        const snapshot = await getDocs(q);
+        vagas = snapshot.docs.map(doc => doc.data() as Vaga);
+
+        if (filters?.busca) {
+          const term = filters.busca.toLowerCase();
+          vagas = vagas.filter(v => 
+            v.titulo.toLowerCase().includes(term) || 
+            v.empresa.toLowerCase().includes(term)
+          );
+        }
+
+        console.log(`Storage: ${vagas.length} vagas carregadas do Firebase.`);
+        
+        if (vagas.length > 0) return vagas;
+        
+        // Verifica se o banco está vazio para decidir se faz fallback
+        const countSnapshot = await getCountFromServer(vagasCol);
+        if (countSnapshot.data().count > 0) return [];
+        
+        console.log('Storage: Firebase vazio. Tentando outras fontes...');
+      } catch (err) {
+        console.error('Firebase Error:', err);
+      }
+    }
+
+    // Prioridade 2: Supabase
     if (this.useSupabase && this.supabase) {
       try {
         let query = this.supabase.from('vagas').select('*');
@@ -186,6 +263,17 @@ export class StorageService {
 
   async getVagaById(id: string): Promise<Vaga | null> {
     this.refreshConfig();
+    
+    if (this.useFirebase && this.db) {
+      try {
+        const docRef = doc(this.db, 'vagas', id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) return docSnap.data() as Vaga;
+      } catch (err) {
+        console.error('Erro ao buscar vaga no Firebase:', err);
+      }
+    }
+
     if (this.useSupabase && this.supabase) {
       try {
         const { data, error } = await this.supabase
@@ -210,7 +298,16 @@ export class StorageService {
     
     let existingLinks = new Set<string>();
     
-    if (this.useSupabase && this.supabase) {
+    // Coleta links existentes para evitar duplicatas
+    if (this.useFirebase && this.db) {
+      try {
+        const vagasCol = collection(this.db, 'vagas');
+        const snapshot = await getDocs(query(vagasCol, limit(1000))); // Busca parcial para performance
+        snapshot.docs.forEach(doc => existingLinks.add((doc.data() as Vaga).linkOriginal));
+      } catch (err) {
+        console.error('Erro ao verificar duplicatas no Firebase:', err);
+      }
+    } else if (this.useSupabase && this.supabase) {
       try {
         // Busca apenas os links existentes no Supabase para evitar duplicatas lá
         const { data, error } = await this.supabase.from('vagas').select('link_original, linkOriginal');
@@ -235,7 +332,22 @@ export class StorageService {
     if (finalVagas.length === 0) return 0;
 
     let savedOk = false;
-    if (this.useSupabase && this.supabase) {
+    
+    // Salva no Firebase
+    if (this.useFirebase && this.db) {
+      try {
+        for (const vaga of finalVagas) {
+          await setDoc(doc(this.db, 'vagas', vaga.id), vaga);
+        }
+        console.log(`Storage: ${finalVagas.length} vagas salvas no Firebase.`);
+        savedOk = true;
+      } catch (err) {
+        console.error('Erro ao salvar no Firebase:', err);
+      }
+    }
+
+    // Fallback para Supabase se Firebase falhou ou não está ativo
+    if (!savedOk && this.useSupabase && this.supabase) {
       try {
         const mappedVagas = finalVagas.map(v => this.mapToSupabase(v));
         const { error } = await this.supabase.from('vagas').insert(mappedVagas);

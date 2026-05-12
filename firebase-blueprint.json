@@ -1,0 +1,28 @@
+{
+  "entities": {
+    "vaga": {
+      "title": "Vaga de Emprego",
+      "description": "Uma vaga de emprego coletada dos sites do governo",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "titulo": { "type": "string" },
+        "empresa": { "type": "string" },
+        "localizacao": { "type": "string" },
+        "salario": { "type": "string" },
+        "dataPublicacao": { "type": "string", "format": "date-time" },
+        "descricao": { "type": "string" },
+        "linkOriginal": { "type": "string" },
+        "fonte": { "type": "string", "enum": ["SEDEPE", "GO_RECIFE"] },
+        "coletadoEm": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "titulo", "empresa", "localizacao", "dataPublicacao", "linkOriginal", "fonte", "coletadoEm"]
+    }
+  },
+  "firestore": {
+    "vagas": {
+      "schema": "vaga",
+      "description": "Coleção de todas as vagas coletadas"
+    }
+  }
+}

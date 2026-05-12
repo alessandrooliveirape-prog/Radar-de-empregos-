@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper para validar ID de documento
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    
+    // Helper para verificar se está logado (se houver auth no futuro)
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+
+    // Validação da Vaga
+    function isValidVaga(v) {
+      return v.id is string && v.id.size() <= 128 &&
+             v.titulo is string && v.titulo.size() <= 300 &&
+             v.empresa is string && v.empresa.size() <= 200 &&
+             v.localizacao is string && v.localizacao.size() <= 200 &&
+             v.dataPublicacao is string &&
+             v.linkOriginal is string && v.linkOriginal.size() <= 1000 &&
+             v.fonte in ['SEDEPE', 'GO_RECIFE'] &&
+             v.coletadoEm is string;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Coleção de Vagas
+    match /vagas/{vagaId} {
+      // Público pode ler e listar vagas para o dashboard
+      allow get, list: if true;
+      
+      // Escrita Restrita (Idealmente devia ser request.auth, mas se o scraper é server-side
+      // e usa o client SDK sem login, precisamos de um mecanismo ou usar firebase-admin)
+      // Por enquanto, permitimos criação se seguir o schema para não bloquear o tutorial do usuário
+      // IMPORTANT: In production, this should be restricted to authenticated admins
+      allow create: if isValidId(vagaId) && isValidVaga(request.resource.data);
+      
+      // Updates e Deletes bloqueados para o público
+      allow update, delete: if false;
+    }
+  }
+}
