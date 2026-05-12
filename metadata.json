@@ -1,0 +1,6 @@
+{
+  "name": "Radar de Empregos PE",
+  "description": "Sistema automatizado de coleta e monitoramento de vagas de emprego dos portais SEDEPE e Go Recife.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
