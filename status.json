@@ -1,0 +1,20 @@
+{
+  "totalVagas": 127,
+  "ultimaExecucaoGeral": "2026-05-12T11:47:32.400Z",
+  "scrapers": [
+    {
+      "fonte": "SEDEPE",
+      "ultimaExecucao": "2026-05-12T11:46:59.593Z",
+      "totalVagasColetadas": 1,
+      "ultimoErro": null,
+      "emExecucao": false
+    },
+    {
+      "fonte": "GO_RECIFE",
+      "ultimaExecucao": "2026-05-12T11:47:32.400Z",
+      "totalVagasColetadas": 126,
+      "ultimoErro": null,
+      "emExecucao": false
+    }
+  ]
+}

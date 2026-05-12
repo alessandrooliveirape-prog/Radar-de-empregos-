@@ -1,59 +1,63 @@
-import { chromium } from 'playwright';
+import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { Vaga, FonteVaga } from '../types';
 import { USER_AGENT, delay } from './utils';
+import { parse, formatISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 export class GoRecifeScraper {
-  private url = 'https://gorecife.recife.pe.gov.br/oportunidades';
+  private apiUrl = 'https://gorecife.recife.pe.gov.br/api/oportunidades?status=aberta';
 
   async execute(): Promise<Vaga[]> {
     const vagas: Vaga[] = [];
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ userAgent: USER_AGENT });
-    const page = await context.newPage();
-
+    let nextUrl: string | null = this.apiUrl;
+    
     try {
-      await page.goto(this.url, { waitUntil: 'networkidle' });
-      
-      // Aguarda o carregamento das vagas (TODO: verificar seletor real)
-      await page.waitForSelector('.card-vaga, article, .vaga', { timeout: 10000 }).catch(() => null);
+      while (nextUrl) {
+        console.log(`Go Recife: Coletando página ${nextUrl}`);
+        const response = await axios.get(nextUrl, {
+          headers: { 
+            'User-Agent': USER_AGENT,
+            'Accept': 'application/json'
+          }
+        });
 
-      // Extrair vagas do DOM
-      const extractedVagas = await page.evaluate(() => {
-        // Seletores hipotéticos para o Go Recife
-        const items = document.querySelectorAll('.card-vaga, article, .vaga');
-        return Array.from(items).map(item => ({
-          titulo: item.querySelector('h3, .title')?.textContent?.trim() || '',
-          empresa: item.querySelector('.empresa, .company')?.textContent?.trim() || 'Prefeitura do Recife',
-          localizacao: item.querySelector('.localizacao, .location')?.textContent?.trim() || 'Recife, PE',
-          salario: item.querySelector('.salario, .price')?.textContent?.trim() || null,
-          linkOriginal: (item.querySelector('a') as HTMLAnchorElement)?.href || window.location.href,
-          descricao: item.querySelector('.descricao, .description')?.textContent?.trim() || ''
-        }));
-      });
+        const results = response.data.results || [];
+        nextUrl = response.data.next;
 
-      for (const v of extractedVagas) {
-        if (v.titulo) {
+        for (const item of results) {
+          // Converter data "11/05/2026" para ISO
+          let dataPub = new Date().toISOString();
+          try {
+            if (item.created_on) {
+              const parsedDate = parse(item.created_on, 'dd/MM/yyyy', new Date());
+              dataPub = formatISO(parsedDate);
+            }
+          } catch (e) {
+            // Fallback to today
+          }
+
           vagas.push({
             id: uuidv4(),
-            titulo: v.titulo,
-            empresa: v.empresa,
-            localizacao: v.localizacao,
-            salario: v.salario,
-            dataPublicacao: new Date().toISOString(),
-            descricao: v.descricao,
-            linkOriginal: v.linkOriginal,
+            titulo: item.short_description || item.cbo?.name || 'Vaga sem título',
+            empresa: item.company_name || 'Prefeitura do Recife',
+            localizacao: item.ibge_code ? `${item.ibge_code.name}, ${item.ibge_code.state}` : 'Recife, PE',
+            salario: item.salary || null,
+            dataPublicacao: dataPub,
+            descricao: item.description || item.requirements || '',
+            linkOriginal: `https://gorecife.recife.pe.gov.br/oportunidades/${item.id}`,
             fonte: FonteVaga.GO_RECIFE,
             coletadoEm: new Date().toISOString()
           });
         }
+
+        // Delay para evitar rate limiting entre páginas
+        if (nextUrl) await delay(1000);
       }
 
     } catch (error) {
-      console.error('Erro no scraper Go Recife:', error);
+      console.error('Erro no scraper Go Recife (API):', error);
       throw error;
-    } finally {
-      await browser.close();
     }
 
     return vagas;

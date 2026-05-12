@@ -11,14 +11,29 @@ export class StorageService {
   private useSupabase: boolean = false;
 
   constructor() {
-    this.useSupabase = process.env.USE_SUPABASE === 'true';
-    if (this.useSupabase) {
-      this.supabase = createClient(
-        process.env.SUPABASE_URL || '',
-        process.env.SUPABASE_ANON_KEY || ''
-      );
-    }
+    this.refreshConfig();
     this.initJsonStores();
+  }
+
+  private refreshConfig() {
+    this.useSupabase = process.env.USE_SUPABASE === 'true';
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_ANON_KEY;
+
+    if (this.useSupabase && url && url.includes('supabase.co') && key) {
+      if (!this.supabase) {
+        try {
+          console.log(`Storage: Ativando Supabase em ${url}`);
+          this.supabase = createClient(url, key);
+        } catch (err) {
+          console.error('Falha ao criar cliente Supabase:', err);
+          this.useSupabase = false;
+        }
+      }
+    } else {
+      this.useSupabase = false;
+      this.supabase = null;
+    }
   }
 
   private initJsonStores() {
@@ -39,6 +54,7 @@ export class StorageService {
   }
 
   async getVagas(filters?: { fonte?: FonteVaga; busca?: string }): Promise<Vaga[]> {
+    this.refreshConfig();
     let vagas: Vaga[] = [];
 
     if (this.useSupabase && this.supabase) {
@@ -68,6 +84,7 @@ export class StorageService {
   }
 
   async getVagaById(id: string): Promise<Vaga | null> {
+    this.refreshConfig();
     if (this.useSupabase && this.supabase) {
       const { data, error } = await this.supabase
         .from('vagas')
@@ -83,6 +100,7 @@ export class StorageService {
   }
 
   async saveVagas(novasVagas: Vaga[]): Promise<number> {
+    this.refreshConfig();
     const existingVagas = await this.getVagas();
     const existingLinks = new Set(existingVagas.map(v => v.linkOriginal));
     

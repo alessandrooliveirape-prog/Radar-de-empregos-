@@ -126,7 +126,7 @@ export default function App() {
               Status dos Scrapers
             </h2>
             <div className="space-y-4">
-              {status?.scrapers.map((s) => (
+              {status?.scrapers?.map((s) => (
                 <div key={s.fonte} className="p-3 bg-gray-50 rounded-xl border border-gray-100">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold">{s.fonte}</span>
@@ -224,7 +224,7 @@ export default function App() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <AnimatePresence mode="popLayout">
-                {vagas.map((vaga) => (
+                {vagas?.map((vaga) => (
                   <motion.div
                     layout
                     key={vaga.id}

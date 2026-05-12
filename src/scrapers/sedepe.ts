@@ -17,33 +17,49 @@ export class SedepeScraper {
 
       const $ = cheerio.load(response.data);
       
-      // TODO: Verificar seletores reais no site SEDEPE
-      // Exemplo hipotético baseado no comportamento comum de sites governamentais em WP
-      $('.post-item, .vaga-item, article').each((_, element) => {
-        const title = $(element).find('h2, .title, .entry-title').text().trim();
-        const link = $(element).find('a').attr('href') || this.url;
-        const details = $(element).find('.excerpt, .description').text().trim();
+      // Tenta encontrar o bloco de arquivo (PDF) que o SEDEPE usa frequentemente
+      $('.wp-block-file').each((_, element) => {
+        const link = $(element).find('a').first().attr('href');
+        const title = $(element).find('a').first().text().trim();
         
-        // Muitos sites postam o local e empresa no próprio texto
-        // Tentar extrair localização se houver campo específico
-        const location = $(element).find('.location, .cidade').text().trim() || "Pernambuco";
-        const company = $(element).find('.company, .empresa').text().trim() || "Não informada";
-        
-        if (title) {
+        if (link && link.endsWith('.pdf')) {
           vagas.push({
             id: uuidv4(),
-            titulo: title,
-            empresa: company,
-            localizacao: location,
-            salario: null, // Geralmente não disponível na listagem
-            dataPublicacao: new Date().toISOString(), // Fallback se não encontrar data
-            descricao: details,
+            titulo: title || 'Quadro de Vagas (PDF)',
+            empresa: 'SEDEPE / SINE-PE',
+            localizacao: 'Pernambuco',
+            salario: 'Consulte o PDF',
+            dataPublicacao: new Date().toISOString(),
+            descricao: `Vagas disponíveis no arquivo oficial do SINE-PE. Clique no link para baixar o PDF.`,
             linkOriginal: link,
             fonte: FonteVaga.SEDEPE,
             coletadoEm: new Date().toISOString()
           });
         }
       });
+
+      // Se não encontrou PDF, tenta o seletor genérico de posts (fallback)
+      if (vagas.length === 0) {
+        $('.elementor-post, article').each((_, element) => {
+          const title = $(element).find('h2, h3, .elementor-heading-title').text().trim();
+          const link = $(element).find('a').attr('href') || this.url;
+          
+          if (title && title.toLowerCase().includes('vaga')) {
+            vagas.push({
+              id: uuidv4(),
+              titulo: title,
+              empresa: 'SEDEPE',
+              localizacao: 'Pernambuco',
+              salario: null,
+              dataPublicacao: new Date().toISOString(),
+              descricao: 'Confira os detalhes das vagas no portal SEDEPE.',
+              linkOriginal: link,
+              fonte: FonteVaga.SEDEPE,
+              coletadoEm: new Date().toISOString()
+            });
+          }
+        });
+      }
 
       // Tratar paginação (hipotético)
       // const nextPage = $('.next').attr('href');
