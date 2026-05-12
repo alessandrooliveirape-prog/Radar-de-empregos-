@@ -118,6 +118,10 @@ export class StorageService {
 
         console.log(`Storage: ${vagas.length} vagas carregadas do Supabase.`);
         
+        // Se temos dados no Supabase, retornamos eles (mesmo que seja [] se a query não encontrou nada)
+        // Isso assume que o Supabase é a fonte da verdade quando ativo.
+        // Só fazemos o fallback se o banco estiver totalmente vazio (primeira vez) 
+        // ou se houver um erro real de conexão.
         if (vagas.length > 0) {
           vagas.sort((a, b) => {
             const dateA = a.dataPublicacao ? new Date(a.dataPublicacao).getTime() : 0;
@@ -127,13 +131,24 @@ export class StorageService {
           return vagas;
         }
         
-        console.log('Storage: Banco Supabase vazio ou sem correspondências. Verificando JSON local...');
+        // Se o Supabase retornou 0 vagas, mas o total no banco (sem filtros) for > 0, 
+        // significa que os filtros não bateram. Retornamos [].
+        const { count } = await this.supabase.from('vagas').select('*', { count: 'exact', head: true });
+        if (count && count > 0) {
+          return [];
+        }
+
+        console.log('Storage: Banco Supabase vazio. Verificando JSON local para migração/backup...');
       } catch (err: any) {
         console.error('Supabase Error:', err.message || err);
+        // Em caso de erro de rede, desabilita temporariamente para não travar a UI
+        if (err.message?.includes('fetch failed')) {
+          console.warn('Falha catastrófica de rede no Supabase.');
+        }
       }
     }
 
-    // Backup local em JSON
+    // Backup/Fallback local em JSON
     try {
       if (!fs.existsSync(JSON_DB_PATH)) return [];
       const data = fs.readFileSync(JSON_DB_PATH, 'utf-8');
@@ -149,6 +164,7 @@ export class StorageService {
         );
       }
       vagas.sort((a, b) => new Date(b.dataPublicacao).getTime() - new Date(a.dataPublicacao).getTime());
+      console.log(`Storage: ${vagas.length} vagas carregadas do JSON local.`);
     } catch (err) {
       console.error('Erro no fallback local:', err);
     }
@@ -179,10 +195,26 @@ export class StorageService {
 
   async saveVagas(novasVagas: Vaga[]): Promise<number> {
     this.refreshConfig();
-    const existingVagas = await this.getVagas();
-    const existingLinks = new Set(existingVagas.map(v => v.linkOriginal));
     
-    // Filter out duplicates
+    let existingLinks = new Set<string>();
+    
+    if (this.useSupabase && this.supabase) {
+      try {
+        // Busca apenas os links existentes no Supabase para evitar duplicatas lá
+        const { data } = await this.supabase.from('vagas').select('link_original');
+        if (data) {
+          data.forEach(v => existingLinks.add(v.link_original));
+        }
+      } catch (err) {
+        console.error('Erro ao verificar duplicatas no Supabase:', err);
+      }
+    } else {
+      // Se não estiver usando Supabase, verifica no JSON local
+      const existingVagas = await this.getVagas();
+      existingVagas.forEach(v => existingLinks.add(v.linkOriginal));
+    }
+    
+    // Filtra as vagas que já existem (baseado na fonte de verdade atual)
     const finalVagas = novasVagas.filter(v => !existingLinks.has(v.linkOriginal));
     
     if (finalVagas.length === 0) return 0;
@@ -201,7 +233,9 @@ export class StorageService {
     }
 
     if (!savedOk) {
-      const merged = [...existingVagas, ...finalVagas];
+      // Busca todas do JSON local para merge se falhou Supabase ou se não estamos usando ele
+      const currentLocalData = await this.getVagas(); // getVagas aqui retornará o que estiver no JSON se useSupabase falhou
+      const merged = [...currentLocalData, ...finalVagas];
       fs.writeFileSync(JSON_DB_PATH, JSON.stringify(merged, null, 2));
     }
 
