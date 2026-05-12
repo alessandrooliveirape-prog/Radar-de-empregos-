@@ -9,50 +9,45 @@ import vagasRoutes from "./src/routes/vagas";
 import scraperRoutes from "./src/routes/scraper";
 import { schedulerService } from "./src/services/scheduler";
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
-  app.use(cors());
-  app.use(express.json());
+app.use(cors());
+app.use(express.json());
 
-  // Rotas da API
-  app.use("/api/vagas", vagasRoutes);
-  app.use("/api/scraper", scraperRoutes);
+// 1. Rotas da API (Devem vir primeiro)
+app.use("/api/vagas", vagasRoutes);
+app.use("/api/scraper", scraperRoutes);
 
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// Inicializa o agendador (Nota: Em serverless, o cron do Node pode não ser persistente. Use Vercel Crons para produção real)
+schedulerService.init();
+
+// 2. Ambiente de Execução
+if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+  const distPath = path.join(process.cwd(), 'dist');
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
   });
-
-  // Inicializa o agendador
-  schedulerService.init();
-
-  // Vite middleware para desenvolvimento
-  if (process.env.NODE_ENV !== "production") {
+} else {
+  // Middleware do Vite para desenvolvimento local
+  const setupDevServer = async () => {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
-
-  // Só inicia o listen se não estiver em ambiente serverless que faz o auto-bind
-  if (process.env.NODE_ENV !== 'test') {
+    
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Servidor rodando em http://localhost:${PORT}`);
-      console.log(`Modo: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Servidor de desenvolvimento pronto em http://localhost:${PORT}`);
     });
-  }
-
-  return app;
+  };
+  setupDevServer();
 }
 
-export const appPromise = startServer().catch(err => {
-  console.error("Erro ao iniciar o servidor:", err);
-});
+// 3. Exportação para Vercel
+export default app;
