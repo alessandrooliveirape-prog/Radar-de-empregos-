@@ -1,13 +1,13 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import cors from "cors";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import dotenv from "dotenv";
 import vagasRoutes from "./src/routes/vagas";
 import scraperRoutes from "./src/routes/scraper";
 import { schedulerService } from "./src/services/scheduler";
-
-dotenv.config();
 
 async function startServer() {
   const app = express();

@@ -20,7 +20,7 @@ export class StorageService {
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_ANON_KEY;
 
-    if (this.useSupabase && url && url.includes('supabase.co') && key) {
+    if (this.useSupabase && url && url.includes('supabase.co') && !url.includes('zuouczpzjycwtcuwhxgb') && key) {
       if (!this.supabase) {
         try {
           console.log(`Storage: Ativando Supabase em ${url}`);
@@ -58,17 +58,31 @@ export class StorageService {
     let vagas: Vaga[] = [];
 
     if (this.useSupabase && this.supabase) {
-      let query = this.supabase.from('vagas').select('*');
-      if (filters?.fonte) query = query.eq('fonte', filters.fonte);
-      if (filters?.busca) query = query.ilike('titulo', `%${filters.busca}%`);
-      
-      const { data, error } = await query;
-      if (error) throw error;
-      vagas = data as Vaga[];
-    } else {
+      try {
+        let query = this.supabase.from('vagas').select('*');
+        if (filters?.fonte && filters.fonte !== 'ALL' as any) query = query.eq('fonte', filters.fonte);
+        if (filters?.busca) query = query.ilike('titulo', `%${filters.busca}%`);
+        
+        const { data, error } = await query.order('dataPublicacao', { ascending: false });
+        if (error) throw error;
+        vagas = data as Vaga[];
+        return vagas;
+      } catch (err: any) {
+        console.error('Supabase Error (falling back to JSON):', err.message || err);
+        // If it's a connection/DNS error, disable Supabase for this instance
+        if (err.message?.includes('fetch failed') || err.message?.includes('ENOTFOUND')) {
+          console.warn('Network error detected. Disabling Supabase for this session.');
+          this.useSupabase = false;
+        }
+      }
+    }
+
+    // JSON Fallback
+    try {
+      if (!fs.existsSync(JSON_DB_PATH)) return [];
       const data = fs.readFileSync(JSON_DB_PATH, 'utf-8');
       vagas = JSON.parse(data);
-      if (filters?.fonte) {
+      if (filters?.fonte && filters.fonte !== 'ALL' as any) {
         vagas = vagas.filter(v => v.fonte === filters.fonte);
       }
       if (filters?.busca) {
@@ -76,27 +90,37 @@ export class StorageService {
         vagas = vagas.filter(v => 
           v.titulo.toLowerCase().includes(term) || 
           v.empresa.toLowerCase().includes(term) ||
-          v.descricao?.toLowerCase().includes(term)
+          (v.descricao && v.descricao.toLowerCase().includes(term))
         );
       }
+
+      vagas.sort((a, b) => new Date(b.dataPublicacao).getTime() - new Date(a.dataPublicacao).getTime());
+    } catch (err) {
+      console.error('Local JSON Error:', err);
     }
+    
     return vagas;
   }
 
   async getVagaById(id: string): Promise<Vaga | null> {
     this.refreshConfig();
     if (this.useSupabase && this.supabase) {
-      const { data, error } = await this.supabase
-        .from('vagas')
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (error) return null;
-      return data as Vaga;
-    } else {
-      const vagas = await this.getVagas();
-      return vagas.find(v => v.id === id) || null;
+      try {
+        const { data, error } = await this.supabase
+          .from('vagas')
+          .select('*')
+          .eq('id', id)
+          .single();
+        if (error) throw error;
+        return data as Vaga;
+      } catch (err) {
+        console.error('Erro ao buscar vaga no Supabase:', err);
+        // Fallback to local
+      }
     }
+    
+    const vagas = await this.getVagas();
+    return vagas.find(v => v.id === id) || null;
   }
 
   async saveVagas(novasVagas: Vaga[]): Promise<number> {
@@ -109,10 +133,18 @@ export class StorageService {
     
     if (finalVagas.length === 0) return 0;
 
+    let savedOk = false;
     if (this.useSupabase && this.supabase) {
-      const { error } = await this.supabase.from('vagas').insert(finalVagas);
-      if (error) throw error;
-    } else {
+      try {
+        const { error } = await this.supabase.from('vagas').insert(finalVagas);
+        if (error) throw error;
+        savedOk = true;
+      } catch (err) {
+        console.error('Erro ao salvar no Supabase, caindo para JSON:', err);
+      }
+    }
+
+    if (!savedOk) {
       const merged = [...existingVagas, ...finalVagas];
       fs.writeFileSync(JSON_DB_PATH, JSON.stringify(merged, null, 2));
     }

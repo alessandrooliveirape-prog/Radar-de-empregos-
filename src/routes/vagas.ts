@@ -7,6 +7,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const { fonte, busca, pagina = '1', limite = '20' } = req.query;
+    console.log(`API: Buscando vagas - Fonte: ${fonte}, Busca: ${busca}, Pagina: ${pagina}`);
     
     const vagas = await storageService.getVagas({
       fonte: fonte as FonteVaga,

@@ -26,11 +26,13 @@ export default function App() {
 
   const fetchVagas = async () => {
     try {
-      const fonteQuery = fonteFilter !== 'ALL' ? `&fonte=${fonteFilter}` : '';
+      const fonteQuery = (fonteFilter !== 'ALL') ? `&fonte=${fonteFilter}` : '';
       const searchQuery = search ? `&busca=${search}` : '';
       const res = await fetch(`/api/vagas?pagina=1&limite=50${fonteQuery}${searchQuery}`);
+      if (!res.ok) throw new Error('Falha na resposta da API');
       const data = await res.json();
       setVagas(data.vagas || []);
+      setError(null);
     } catch (err) {
       setError('Erro ao carregar vagas. Verifique se o servidor está rodando.');
     } finally {
