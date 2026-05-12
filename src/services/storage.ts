@@ -68,9 +68,9 @@ export class StorageService {
   private mapToSupabase(vaga: Vaga) {
     return {
       id: vaga.id,
-      titulo: vaga.titulo,
-      empresa: vaga.empresa,
-      localizacao: vaga.localizacao,
+      titulo: vaga.titulo || 'Sem título',
+      empresa: vaga.empresa || 'Empresa não informada',
+      localizacao: vaga.localizacao || 'Pernambuco',
       salario: vaga.salario,
       data_publicacao: vaga.dataPublicacao,
       descricao: vaga.descricao,
@@ -82,16 +82,16 @@ export class StorageService {
 
   private mapFromSupabase(data: any): Vaga {
     return {
-      id: data.id,
-      titulo: data.titulo,
-      empresa: data.empresa,
-      localizacao: data.localizacao,
-      salario: data.salario,
-      dataPublicacao: data.data_publicacao || data.dataPublicacao,
-      descricao: data.descricao,
-      linkOriginal: data.link_original || data.linkOriginal,
-      fonte: data.fonte,
-      coletadoEm: data.coletado_em || data.coletadoEm
+      id: data.id || Math.random().toString(36).substr(2, 9),
+      titulo: data.titulo || 'Vaga sem título',
+      empresa: data.empresa || 'Empresa não informada',
+      localizacao: data.localizacao || 'Pernambuco',
+      salario: data.salario || null,
+      dataPublicacao: data.data_publicacao || data.dataPublicacao || new Date().toISOString(),
+      descricao: data.descricao || null,
+      linkOriginal: data.link_original || data.linkOriginal || '',
+      fonte: data.fonte || FonteVaga.SEDEPE,
+      coletadoEm: data.coletado_em || data.coletadoEm || new Date().toISOString()
     };
   }
 
@@ -105,31 +105,31 @@ export class StorageService {
         if (filters?.fonte && filters.fonte !== 'ALL' as any) query = query.eq('fonte', filters.fonte);
         if (filters?.busca) query = query.ilike('titulo', `%${filters.busca}%`);
         
-        // Agora ordenamos explicitamente pela coluna que você criou
         const { data, error } = await query.order('data_publicacao', { ascending: false });
         
         if (error) {
-          // Se falhar a ordenação (ex: coluna não indexada ou erro de nome), traz sem ordem e ordenamos no JS
-          const { data: d2, error: e2 } = await query;
+          console.warn('Storage: Erro na query do Supabase, tentando sem ordenação:', error.message);
+          const { data: d2, error: e2 } = await this.supabase.from('vagas').select('*');
           if (e2) throw e2;
           vagas = (d2 || []).map(v => this.mapFromSupabase(v));
         } else {
           vagas = (data || []).map(v => this.mapFromSupabase(v));
         }
 
-        // Ordenação extra no JS para garantir perfeição na UI
-        vagas.sort((a, b) => {
-          const dateA = a.dataPublicacao ? new Date(a.dataPublicacao).getTime() : 0;
-          const dateB = b.dataPublicacao ? new Date(b.dataPublicacao).getTime() : 0;
-          return dateB - dateA;
-        });
-
-        return vagas;
-      } catch (err: any) {
-        console.error('Supabase Error (falling back to JSON):', err.message || err);
-        if (err.message?.includes('fetch failed') || err.message?.includes('Failed to fetch')) {
-          console.warn('Conexão com Supabase falhou. Usando backup local.');
+        console.log(`Storage: ${vagas.length} vagas carregadas do Supabase.`);
+        
+        if (vagas.length > 0) {
+          vagas.sort((a, b) => {
+            const dateA = a.dataPublicacao ? new Date(a.dataPublicacao).getTime() : 0;
+            const dateB = b.dataPublicacao ? new Date(b.dataPublicacao).getTime() : 0;
+            return dateB - dateA;
+          });
+          return vagas;
         }
+        
+        console.log('Storage: Banco Supabase vazio ou sem correspondências. Verificando JSON local...');
+      } catch (err: any) {
+        console.error('Supabase Error:', err.message || err);
       }
     }
 
