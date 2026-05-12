@@ -154,11 +154,19 @@ export class StorageService {
   }
 
   async getStatus(): Promise<AppStatus> {
-    const data = fs.readFileSync(STATUS_DB_PATH, 'utf-8');
-    const status = JSON.parse(data) as AppStatus;
-    const allVagas = await this.getVagas();
-    status.totalVagas = allVagas.length;
-    return status;
+    try {
+      const data = fs.readFileSync(STATUS_DB_PATH, 'utf-8');
+      const status = JSON.parse(data) as AppStatus;
+      return status;
+    } catch (err) {
+      console.error('Error reading status:', err);
+      // Return a default status if read fails
+      return {
+        totalVagas: 0,
+        ultimaExecucaoGeral: null,
+        scrapers: []
+      };
+    }
   }
 
   async updateScraperStatus(fonte: FonteVaga, updates: Partial<ScraperStatus>) {
@@ -180,6 +188,11 @@ export class StorageService {
       status.scrapers[scraperIdx].ultimaExecucao = new Date().toISOString();
       status.scrapers[scraperIdx].totalVagasColetadas += vagasColetadas.length;
       status.ultimaExecucaoGeral = new Date().toISOString();
+      
+      // Update global total count
+      const allVagas = await this.getVagas();
+      status.totalVagas = allVagas.length;
+      
       fs.writeFileSync(STATUS_DB_PATH, JSON.stringify(status, null, 2));
     }
   }

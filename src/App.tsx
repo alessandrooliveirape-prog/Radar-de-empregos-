@@ -10,7 +10,9 @@ import {
   AlertCircle,
   CheckCircle2,
   Filter,
-  Briefcase
+  Briefcase,
+  X,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Vaga, AppStatus, FonteVaga } from './types';
@@ -22,6 +24,7 @@ export default function App() {
   const [triggering, setTriggering] = useState(false);
   const [search, setSearch] = useState('');
   const [fonteFilter, setFonteFilter] = useState< FonteVaga | 'ALL'>('ALL');
+  const [selectedVaga, setSelectedVaga] = useState<Vaga | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchVagas = async () => {
@@ -43,10 +46,13 @@ export default function App() {
   const fetchStatus = async () => {
     try {
       const res = await fetch('/api/vagas/status');
+      if (!res.ok) return; // Silent fail for status
       const data = await res.json();
-      setStatus(data);
+      if (data && !data.error) {
+        setStatus(data);
+      }
     } catch (err) {
-      console.error('Erro ao carregar status');
+      // Ignore background status errors to avoid console spam
     }
   };
 
@@ -75,10 +81,13 @@ export default function App() {
 
   useEffect(() => {
     fetchVagas();
+  }, [fonteFilter, search]);
+
+  useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 10000); // Atualiza status a cada 10s
     return () => clearInterval(interval);
-  }, [fonteFilter, search]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
@@ -248,35 +257,37 @@ export default function App() {
                       </span>
                     </div>
 
-                    <h3 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors mb-1 line-clamp-2">
-                      {vaga.titulo}
-                    </h3>
-                    
-                    <div className="flex items-center gap-2 text-gray-500 text-xs mb-4">
-                      <Building2 className="w-3 h-3" />
-                      <span className="truncate">{vaga.empresa}</span>
-                      <span className="text-gray-200">•</span>
-                      <MapPin className="w-3 h-3" />
-                      <span>{vaga.localizacao}</span>
-                    </div>
+                    <div 
+                      onClick={() => setSelectedVaga(vaga)}
+                      className="cursor-pointer"
+                    >
+                      <h3 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors mb-1 line-clamp-2">
+                        {vaga.titulo}
+                      </h3>
+                      
+                      <div className="flex items-center gap-2 text-gray-500 text-xs mb-4">
+                        <Building2 className="w-3 h-3" />
+                        <span className="truncate">{vaga.empresa}</span>
+                        <span className="text-gray-200">•</span>
+                        <MapPin className="w-3 h-3" />
+                        <span>{vaga.localizacao}</span>
+                      </div>
 
-                    <p className="text-xs text-gray-500 line-clamp-2 mb-6 leading-relaxed">
-                      {vaga.descricao || 'Detalhes da vaga disponíveis no link original.'}
-                    </p>
+                      <p className="text-xs text-gray-500 line-clamp-2 mb-6 leading-relaxed">
+                        {vaga.descricao || 'Clique para ver os detalhes da vaga.'}
+                      </p>
+                    </div>
 
                     <div className="flex items-center justify-between pt-4 border-t border-gray-50">
                       <div className="text-xs font-bold text-gray-900">
                         {vaga.salario ? `R$ ${vaga.salario}` : 'Salário não informado'}
                       </div>
-                      <a 
-                        href={vaga.linkOriginal} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 p-1"
+                      <button 
+                        onClick={() => setSelectedVaga(vaga)}
+                        className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
                       >
                         Ver detalhes
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                      </button>
                     </div>
                   </motion.div>
                 ))}
@@ -285,6 +296,138 @@ export default function App() {
           )}
         </section>
       </main>
+
+      {/* Modal de Detalhes */}
+      <AnimatePresence>
+        {selectedVaga && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedVaga(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              {/* Modal Header */}
+              <div className="p-6 border-b border-gray-100 flex items-start justify-between bg-white sticky top-0 z-10">
+                <div className="space-y-1 pr-8">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      selectedVaga.fonte === FonteVaga.SEDEPE 
+                      ? 'bg-orange-100 text-orange-700' 
+                      : 'bg-indigo-100 text-indigo-700'
+                    }`}>
+                      {selectedVaga.fonte}
+                    </span>
+                    <span className="text-[10px] text-gray-400 font-mono flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      Publicado em {new Date(selectedVaga.dataPublicacao).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <h2 className="text-xl font-bold text-gray-900 leading-snug">
+                    {selectedVaga.titulo}
+                  </h2>
+                </div>
+                <button 
+                  onClick={() => setSelectedVaga(null)}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 overflow-y-auto space-y-8 flex-1 custom-scrollbar">
+                {/* Job Info Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
+                    <div className="bg-white p-2 rounded-lg shadow-sm">
+                      <Building2 className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Empresa</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedVaga.empresa}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
+                    <div className="bg-white p-2 rounded-lg shadow-sm">
+                      <MapPin className="w-5 h-5 text-red-500" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Localização</p>
+                      <p className="text-sm font-semibold text-gray-900">{selectedVaga.localizacao}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
+                    <div className="bg-white p-2 rounded-lg shadow-sm">
+                      <Database className="w-5 h-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Salário</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedVaga.salario ? `R$ ${selectedVaga.salario}` : 'A combinar'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-2xl">
+                    <div className="bg-white p-2 rounded-lg shadow-sm">
+                      <Clock className="w-5 h-5 text-orange-500" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Coletado em</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {new Date(selectedVaga.coletadoEm).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* DescriptionSection */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold flex items-center gap-2 text-gray-900">
+                    <div className="w-1.5 h-4 bg-blue-600 rounded-full" />
+                    Descrição e Requisitos
+                  </h3>
+                  <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+                    {selectedVaga.descricao || 'Nenhuma descrição detalhada fornecida pela fonte.'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-6 border-t border-gray-100 bg-gray-50/50 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <p className="text-[10px] text-gray-400 max-w-[200px]">
+                  * As informações da vaga são extraídas automaticamente do portal {selectedVaga.fonte}.
+                </p>
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                  <button 
+                    onClick={() => setSelectedVaga(null)}
+                    className="flex-1 md:flex-none px-6 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-xl transition-all border border-gray-200"
+                  >
+                    Fechar
+                  </button>
+                  <a 
+                    href={selectedVaga.linkOriginal}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 md:flex-none px-6 py-2.5 text-sm font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20"
+                  >
+                    Candidatar-se na Fonte
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Error Toast */}
       <AnimatePresence>
