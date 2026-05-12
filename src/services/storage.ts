@@ -76,7 +76,7 @@ export class StorageService {
       descricao: vaga.descricao,
       link_original: vaga.linkOriginal,
       fonte: vaga.fonte,
-      coletado_em: vaga.coletadoEm
+      coletado_em: vaga.coletadoEm || new Date().toISOString()
     };
   }
 
@@ -101,36 +101,39 @@ export class StorageService {
 
     if (this.useSupabase && this.supabase) {
       try {
-        // Buscamos sem ordenação no banco para evitar erro de coluna inexistente
         let query = this.supabase.from('vagas').select('*');
         if (filters?.fonte && filters.fonte !== 'ALL' as any) query = query.eq('fonte', filters.fonte);
         if (filters?.busca) query = query.ilike('titulo', `%${filters.busca}%`);
         
-        const { data, error } = await query;
+        // Agora ordenamos explicitamente pela coluna que você criou
+        const { data, error } = await query.order('data_publicacao', { ascending: false });
         
-        if (error) throw error;
-        
-        if (data) {
-          vagas = data.map(v => this.mapFromSupabase(v));
-          // Ordena sempre no código para garantir consistência independente da coluna no banco
-          vagas.sort((a, b) => {
-            const dateA = a.dataPublicacao ? new Date(a.dataPublicacao).getTime() : 0;
-            const dateB = b.dataPublicacao ? new Date(b.dataPublicacao).getTime() : 0;
-            return dateB - dateA;
-          });
-          return vagas;
+        if (error) {
+          // Se falhar a ordenação (ex: coluna não indexada ou erro de nome), traz sem ordem e ordenamos no JS
+          const { data: d2, error: e2 } = await query;
+          if (e2) throw e2;
+          vagas = (d2 || []).map(v => this.mapFromSupabase(v));
+        } else {
+          vagas = (data || []).map(v => this.mapFromSupabase(v));
         }
+
+        // Ordenação extra no JS para garantir perfeição na UI
+        vagas.sort((a, b) => {
+          const dateA = a.dataPublicacao ? new Date(a.dataPublicacao).getTime() : 0;
+          const dateB = b.dataPublicacao ? new Date(b.dataPublicacao).getTime() : 0;
+          return dateB - dateA;
+        });
+
+        return vagas;
       } catch (err: any) {
         console.error('Supabase Error (falling back to JSON):', err.message || err);
-        // If it's a connection/DNS error, disable Supabase for this instance
-        if (err.message?.includes('fetch failed') || err.message?.includes('ENOTFOUND')) {
-          console.warn('Network error detected. Disabling Supabase for this session.');
-          this.useSupabase = false;
+        if (err.message?.includes('fetch failed') || err.message?.includes('Failed to fetch')) {
+          console.warn('Conexão com Supabase falhou. Usando backup local.');
         }
       }
     }
 
-    // JSON Fallback
+    // Backup local em JSON
     try {
       if (!fs.existsSync(JSON_DB_PATH)) return [];
       const data = fs.readFileSync(JSON_DB_PATH, 'utf-8');
@@ -142,14 +145,12 @@ export class StorageService {
         const term = filters.busca.toLowerCase();
         vagas = vagas.filter(v => 
           v.titulo.toLowerCase().includes(term) || 
-          v.empresa.toLowerCase().includes(term) ||
-          (v.descricao && v.descricao.toLowerCase().includes(term))
+          v.empresa.toLowerCase().includes(term)
         );
       }
-
       vagas.sort((a, b) => new Date(b.dataPublicacao).getTime() - new Date(a.dataPublicacao).getTime());
     } catch (err) {
-      console.error('Local JSON Error:', err);
+      console.error('Erro no fallback local:', err);
     }
     
     return vagas;
@@ -189,21 +190,11 @@ export class StorageService {
     let savedOk = false;
     if (this.useSupabase && this.supabase) {
       try {
-        // Tenta primeiro com snake_case (nosso padrão)
         const mappedVagas = finalVagas.map(v => this.mapToSupabase(v));
         const { error } = await this.supabase.from('vagas').insert(mappedVagas);
         
-        if (error && error.message.includes('column') && error.message.includes('does not exist')) {
-          console.warn('Storage: Colunas snake_case não encontradas no Supabase. Tentando camelCase...');
-          // Fallback: Tenta inserir o objeto direto (camelCase)
-          const { error: errorAlt } = await this.supabase.from('vagas').insert(finalVagas);
-          if (errorAlt) throw errorAlt;
-          savedOk = true;
-        } else if (error) {
-          throw error;
-        } else {
-          savedOk = true;
-        }
+        if (error) throw error;
+        savedOk = true;
       } catch (err) {
         console.error('Erro ao salvar no Supabase, caindo para JSON:', err);
       }
