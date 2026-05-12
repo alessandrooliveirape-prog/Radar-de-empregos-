@@ -69,11 +69,16 @@ export class StorageService {
     return {
       id: vaga.id,
       titulo: vaga.titulo || 'Sem título',
+      título: vaga.titulo || 'Sem título', // Fallback para tradução
       empresa: vaga.empresa || 'Empresa não informada',
       localizacao: vaga.localizacao || 'Pernambuco',
+      localização: vaga.localizacao || 'Pernambuco', // Fallback para tradução
       salario: vaga.salario,
+      salário: vaga.salario, // Fallback para tradução
       data_publicacao: vaga.dataPublicacao,
+      dados_publicação: vaga.dataPublicacao, // Fallback para tradução
       descricao: vaga.descricao,
+      descrição: vaga.descricao, // Fallback para tradução
       link_original: vaga.linkOriginal,
       fonte: vaga.fonte,
       coletado_em: vaga.coletadoEm || new Date().toISOString()
@@ -82,13 +87,13 @@ export class StorageService {
 
   private mapFromSupabase(data: any): Vaga {
     return {
-      id: data.id || Math.random().toString(36).substr(2, 9),
-      titulo: data.titulo || 'Vaga sem título',
+      id: data.id || data['eu ia'] || Math.random().toString(36).substr(2, 9),
+      titulo: data.titulo || data.título || 'Vaga sem título',
       empresa: data.empresa || 'Empresa não informada',
-      localizacao: data.localizacao || 'Pernambuco',
-      salario: data.salario || null,
-      dataPublicacao: data.data_publicacao || data.dataPublicacao || new Date().toISOString(),
-      descricao: data.descricao || null,
+      localizacao: data.localizacao || data.localização || 'Pernambuco',
+      salario: data.salario || data.salário || null,
+      dataPublicacao: data.data_publicacao || data.dados_publicação || data.dataPublicacao || new Date().toISOString(),
+      descricao: data.descricao || data.descrição || null,
       linkOriginal: data.link_original || data.linkOriginal || '',
       fonte: data.fonte || FonteVaga.SEDEPE,
       coletadoEm: data.coletado_em || data.coletadoEm || new Date().toISOString()
@@ -108,10 +113,17 @@ export class StorageService {
         const { data, error } = await query.order('data_publicacao', { ascending: false });
         
         if (error) {
-          console.warn('Storage: Erro na query do Supabase, tentando sem ordenação:', error.message);
-          const { data: d2, error: e2 } = await this.supabase.from('vagas').select('*');
-          if (e2) throw e2;
-          vagas = (d2 || []).map(v => this.mapFromSupabase(v));
+          // Tenta ordenar pelo nome traduzido se o primeiro falhar
+          const { data: dTrans, error: eTrans } = await this.supabase.from('vagas').select('*').order('dados_publicação', { ascending: false });
+          
+          if (eTrans) {
+            console.warn('Storage: Erro em todas as opções de ordenação, tentando sem ordem:', error.message);
+            const { data: d2, error: e2 } = await this.supabase.from('vagas').select('*');
+            if (e2) throw e2;
+            vagas = (d2 || []).map(v => this.mapFromSupabase(v));
+          } else {
+            vagas = (dTrans || []).map(v => this.mapFromSupabase(v));
+          }
         } else {
           vagas = (data || []).map(v => this.mapFromSupabase(v));
         }
@@ -201,9 +213,12 @@ export class StorageService {
     if (this.useSupabase && this.supabase) {
       try {
         // Busca apenas os links existentes no Supabase para evitar duplicatas lá
-        const { data } = await this.supabase.from('vagas').select('link_original');
+        const { data, error } = await this.supabase.from('vagas').select('link_original, linkOriginal');
         if (data) {
-          data.forEach(v => existingLinks.add(v.link_original));
+          data.forEach((v: any) => {
+            const link = v.link_original || v.linkOriginal;
+            if (link) existingLinks.add(link);
+          });
         }
       } catch (err) {
         console.error('Erro ao verificar duplicatas no Supabase:', err);

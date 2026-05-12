@@ -34,7 +34,7 @@ async function startServer() {
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -42,12 +42,17 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Servidor rodando em http://localhost:${PORT}`);
-    console.log(`Modo: ${process.env.NODE_ENV || 'development'}`);
-  });
+  // Só inicia o listen se não estiver em ambiente serverless que faz o auto-bind
+  if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Servidor rodando em http://localhost:${PORT}`);
+      console.log(`Modo: ${process.env.NODE_ENV || 'development'}`);
+    });
+  }
+
+  return app;
 }
 
-startServer().catch(err => {
+export const appPromise = startServer().catch(err => {
   console.error("Erro ao iniciar o servidor:", err);
 });
